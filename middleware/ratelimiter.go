@@ -5,14 +5,17 @@ import (
 	"net/http"
 
 	"api-rate-limiter/config"
-	"api-rate-limiter/rate-limiter"
+	ratelimiter "api-rate-limiter/rate-limiter"
 )
 
 func RateLimitMiddleware(rl *ratelimiter.RateLimiter, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 
 		// Short declaration operator
-		clientID := r.RemoteAddr
+		clientID := r.Header.Get("X-Client-ID")
+		if clientID == "" {
+			clientID = r.RemoteAddr
+		}
 
 		allowed := rl.Allow(clientID, config.MaxRequests, config.WindowDuration)
 

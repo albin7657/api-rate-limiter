@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>API Rate Limiter Demo</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f4f6f8;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+
+        .card {
+            background: white;
+            padding: 25px;
+            border-radius: 10px;
+            width: 350px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+
+        button {
+            padding: 10px 20px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        button:hover {
+            background: #0056b3;
+        }
+
+        .log {
+            margin-top: 15px;
+            text-align: left;
+            font-size: 14px;
+            height: 150px;
+            overflow-y: auto;
+            border: 1px solid #ccc;
+            padding: 10px;
+        }
+
+        .success {
+            color: green;
+        }
+
+        .error {
+            color: red;
+        }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <h2>API Rate Limiter</h2>
+    <p>Max 5 requests / 10 seconds</p>
+
+    <button onclick="sendRequest()">Send Request</button>
+
+    <div class="log" id="log"></div>
+</div>
+
+<script>
+    let requestCount = 0;
+    const clientID = "frontend-client-1";
+
+    function sendRequest() {
+        fetch("http://localhost:8080", {
+            method: "GET",
+            headers: {
+                "X-Client-ID": clientID
+            }
+        })
+        .then(response => {
+            requestCount++;
+            if (response.ok) {
+                logMessage(`Request ${requestCount}: Allowed`, "success");
+            } else {
+                logMessage(`Request ${requestCount}: Blocked (Rate Limit Exceeded)`, "error");
+            }
+        })
+        .catch(error => {
+            logMessage("Server not reachable", "error");
+        });
+    }
+
+    function logMessage(message, type) {
+        const log = document.getElementById("log");
+        const entry = document.createElement("div");
+        entry.textContent = message;
+        entry.className = type;
+        log.appendChild(entry);
+        log.scrollTop = log.scrollHeight;
+    }
+</script>
+
+</body>
+</html>
