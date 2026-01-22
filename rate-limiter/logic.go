@@ -5,53 +5,65 @@ import (
 	"time"
 )
 
-// Custom type for storing client data
-type Client struct {
-	RequestCount int
-	WindowStart  time.Time
+// Embedded struct (Unit 2)
+type Metadata struct {
+	ClientID string
 }
 
-// RateLimiter structure
+// Client struct (Struct + Embedded Struct)
+type Client struct {
+	Metadata
+	RequestCount int
+	WindowStart  time.Time
+	RequestLog   []time.Time // Slice
+}
+
+// RateLimiter struct
 type RateLimiter struct {
-	Clients map[string]*Client
+	Clients map[string]*Client // Map
 	Mutex   sync.Mutex
 }
 
-// Constructor function
+// Constructor using make()
 func NewRateLimiter() *RateLimiter {
 	return &RateLimiter{
 		Clients: make(map[string]*Client),
 	}
 }
 
-// Allow checks if request can be processed
+// Allow function
 func (rl *RateLimiter) Allow(clientID string, maxRequests int, window time.Duration) bool {
 	rl.Mutex.Lock()
 	defer rl.Mutex.Unlock()
 
 	client, exists := rl.Clients[clientID]
 
-	// New client → zero values applied
 	if !exists {
 		rl.Clients[clientID] = &Client{
+			Metadata:     Metadata{ClientID: clientID},
 			RequestCount: 1,
 			WindowStart:  time.Now(),
+			RequestLog:   make([]time.Time, 0), // make() slice
 		}
+		rl.Clients[clientID].RequestLog = append(
+			rl.Clients[clientID].RequestLog, time.Now(),
+		)
 		return true
 	}
 
-	// Reset window if time expired
+	// Reset window
 	if time.Since(client.WindowStart) > window {
-		client.RequestCount = 1
+		client.RequestCount = 0
 		client.WindowStart = time.Now()
-		return true
+		client.RequestLog = client.RequestLog[:0] // delete slice data
 	}
 
-	// Enforce rate limit
+	// Enforce limit
 	if client.RequestCount >= maxRequests {
 		return false
 	}
 
 	client.RequestCount++
+	client.RequestLog = append(client.RequestLog, time.Now())
 	return true
 }
