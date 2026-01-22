@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// Embedded struct (Unit 2)
+// Embedded struct
 type Metadata struct {
 	ClientID string
 }
@@ -31,7 +31,6 @@ func NewRateLimiter() *RateLimiter {
 	}
 }
 
-// Allow function
 func (rl *RateLimiter) Allow(clientID string, maxRequests int, window time.Duration) bool {
 	rl.Mutex.Lock()
 	defer rl.Mutex.Unlock()

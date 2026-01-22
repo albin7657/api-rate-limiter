@@ -19,7 +19,7 @@ func RateLimitMiddleware(rl *ratelimiter.RateLimiter, next http.Handler) http.Ha
 
 		allowed := rl.Allow(clientID, config.MaxRequests, config.WindowDuration)
 
-		// Anonymous struct (Unit 2)
+		// Anonymous struct
 		response := struct {
 			ClientID string `json:"client_id"`
 			Allowed  bool   `json:"allowed"`
