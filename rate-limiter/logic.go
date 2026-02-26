@@ -1,6 +1,7 @@
 package ratelimiter
 
 import (
+	"errors"
 	"sync"
 	"time"
 )
@@ -10,12 +11,17 @@ type Metadata struct {
 	ClientID string
 }
 
-// Client struct (Struct + Embedded Struct)
+// Client struct
 type Client struct {
 	Metadata
 	RequestCount int
 	WindowStart  time.Time
 	RequestLog   []time.Time // Slice
+}
+
+// RateLimiterService interface unit-3
+type RateLimiterService interface {
+	Allow(clientID string, maxRequests int, window time.Duration) (bool, error)
 }
 
 // RateLimiter struct
@@ -31,7 +37,12 @@ func NewRateLimiter() *RateLimiter {
 	}
 }
 
-func (rl *RateLimiter) Allow(clientID string, maxRequests int, window time.Duration) bool {
+func (rl *RateLimiter) Allow(clientID string, maxRequests int, window time.Duration) (bool, error) {
+
+	if clientID == "" {
+		return false, errors.New("client ID cannot be empty")
+	}
+
 	rl.Mutex.Lock()
 	defer rl.Mutex.Unlock()
 
@@ -42,27 +53,28 @@ func (rl *RateLimiter) Allow(clientID string, maxRequests int, window time.Durat
 			Metadata:     Metadata{ClientID: clientID},
 			RequestCount: 1,
 			WindowStart:  time.Now(),
-			RequestLog:   make([]time.Time, 0), // make() slice
+			RequestLog:   make([]time.Time, 0),
 		}
-		rl.Clients[clientID].RequestLog = append(
-			rl.Clients[clientID].RequestLog, time.Now(),
-		)
-		return true
+		return true, nil
 	}
 
-	// Reset window
 	if time.Since(client.WindowStart) > window {
-		client.RequestCount = 0
-		client.WindowStart = time.Now()
-		client.RequestLog = client.RequestLog[:0] // delete slice data
+		resetClient(client)
 	}
 
-	// Enforce limit
 	if client.RequestCount >= maxRequests {
-		return false
+		return false, nil
 	}
 
 	client.RequestCount++
 	client.RequestLog = append(client.RequestLog, time.Now())
-	return true
+
+	return true, nil
+}
+
+// Helper function
+func resetClient(client *Client) {
+	client.RequestCount = 0
+	client.WindowStart = time.Now()
+	client.RequestLog = client.RequestLog[:0]
 }

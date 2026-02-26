@@ -17,7 +17,13 @@ func RateLimitMiddleware(rl *ratelimiter.RateLimiter, next http.Handler) http.Ha
 			clientID = r.RemoteAddr
 		}
 
-		allowed := rl.Allow(clientID, config.MaxRequests, config.WindowDuration)
+		allowed, err := rl.Allow(clientID, config.MaxRequests, config.WindowDuration)
+
+		if err != nil {
+			fmt.Println("Error:", err)
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 
 		// Anonymous struct
 		response := struct {
