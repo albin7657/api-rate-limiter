@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"api-rate-limiter/config"
 	ratelimiter "api-rate-limiter/rate-limiter"
@@ -13,19 +14,37 @@ func RateLimitMiddleware(rl *ratelimiter.RateLimiter, next http.Handler) http.Ha
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 
 		clientID := r.Header.Get("X-Client-ID")
+
+		// Check if client is authenticated
 		if clientID == "" {
 			clientID = r.RemoteAddr
+		}
+
+		// Verify authentication token (Bearer token)
+		authHeader := r.Header.Get("Authorization")
+		if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
+			fmt.Println("Unauthorized: Missing authentication token for:", clientID)
+			respondWithError(w, "Authentication required. Please provide valid Bearer token.", http.StatusUnauthorized)
+			return
+		}
+
+		// Token format validation (basic check)
+		token := strings.TrimPrefix(authHeader, "Bearer ")
+		if token == "" {
+			fmt.Println("Unauthorized: Invalid token format for:", clientID)
+			respondWithError(w, "Invalid authentication token.", http.StatusUnauthorized)
+			return
 		}
 
 		allowed, err := rl.Allow(clientID, config.MaxRequests, config.WindowDuration)
 
 		if err != nil {
 			fmt.Println("Error:", err)
-			http.Error(w, err.Error(), http.StatusBadRequest)
+			respondWithError(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 
-		// Anonymous struct
+		// Anonymous struct - JSON marshalling
 		response := struct {
 			ClientID string `json:"client_id"`
 			Allowed  bool   `json:"allowed"`
@@ -43,11 +62,24 @@ func RateLimitMiddleware(rl *ratelimiter.RateLimiter, next http.Handler) http.Ha
 		}
 
 		fmt.Println("Request allowed for:", clientID)
-		response.ClientID = clientID
-		response.Allowed = true
-		response.Message = "Request allowed"
-		json.NewEncoder(w).Encode(response)
-
 		next.ServeHTTP(w, r)
 	})
+}
+
+// Helper function to respond with error (JSON marshalling)
+func respondWithError(w http.ResponseWriter, message string, statusCode int) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+
+	errorResponse := struct {
+		Error   string `json:"error"`
+		Status  int    `json:"status"`
+		Message string `json:"message"`
+	}{
+		Error:   http.StatusText(statusCode),
+		Status:  statusCode,
+		Message: message,
+	}
+
+	json.NewEncoder(w).Encode(errorResponse)
 }

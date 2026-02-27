@@ -7,7 +7,7 @@ func CORSMiddleware(next http.Handler) http.Handler {
 
 		// Allow all origins (safe for demo/project)
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Client-ID")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Client-ID, Authorization")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 
 		// Handle preflight request
