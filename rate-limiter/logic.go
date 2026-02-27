@@ -16,7 +16,8 @@ type Client struct {
 	Metadata
 	RequestCount int
 	WindowStart  time.Time
-	RequestLog   []time.Time // Slice
+	RequestLog   []time.Time
+	PasswordHash string
 }
 
 // RateLimiterService interface unit-3
