@@ -12,6 +12,7 @@ import (
 func main() {
 
 	rl := ratelimiter.NewRateLimiter()
+	defer rl.Shutdown()
 	// Pointer demonstration
 	value := 5
 

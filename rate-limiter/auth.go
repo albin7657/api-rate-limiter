@@ -37,10 +37,13 @@ func (rl *RateLimiter) RegisterClient(clientID, password string) error {
 	rl.Mutex.Lock()
 	defer rl.Mutex.Unlock()
 
+	now := time.Now()
+
 	rl.Clients[clientID] = &Client{
 		Metadata:     Metadata{ClientID: clientID},
 		RequestCount: 0,
-		WindowStart:  time.Now(),
+		WindowStart:  now,
+		LastSeen:     now,
 		RequestLog:   make([]time.Time, 0),
 		PasswordHash: hash,
 	}
@@ -51,13 +54,24 @@ func (rl *RateLimiter) RegisterClient(clientID, password string) error {
 // Authenticate client
 func (rl *RateLimiter) Authenticate(clientID, password string) error {
 
-	rl.Mutex.Lock()
+	rl.Mutex.RLock()
 	client, exists := rl.Clients[clientID]
-	rl.Mutex.Unlock()
+	rl.Mutex.RUnlock()
 
 	if !exists {
 		return bcrypt.ErrMismatchedHashAndPassword
 	}
 
-	return CheckPassword(client.PasswordHash, password)
+	err := CheckPassword(client.PasswordHash, password)
+	if err != nil {
+		return err
+	}
+
+	rl.Mutex.Lock()
+	if existingClient, ok := rl.Clients[clientID]; ok {
+		existingClient.LastSeen = time.Now()
+	}
+	rl.Mutex.Unlock()
+
+	return nil
 }
