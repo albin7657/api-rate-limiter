@@ -10,25 +10,25 @@
         *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
         :root {
-            --bg:        #080c12;
-            --surface:   #0f1520;
-            --surface2:  #161e2e;
+            --bg:        #0b0f14;
+            --surface:   #141a24;
+            --surface2:  #1c2533;
             --border:    rgba(255,255,255,0.07);
-            --border-hi: rgba(100,220,255,0.25);
+            --border-hi: rgba(88,209,255,0.32);
 
-            --cyan:   #3de6f5;
-            --teal:   #00c9a7;
-            --amber:  #f5a623;
-            --rose:   #ff4d6d;
-            --violet: #9b72ff;
+            --cyan:   #58d1ff;
+            --teal:   #31d8b4;
+            --amber:  #ffb347;
+            --rose:   #ff6b6b;
+            --violet: #7f8cff;
 
             --text:     #e8edf5;
             --text-dim: #6b7a94;
             --text-mid: #a0aec0;
 
-            --success: #00e5a0;
-            --warn:    #f5a623;
-            --error:   #ff4d6d;
+            --success: #33d69f;
+            --warn:    #ffb347;
+            --error:   #ff6b6b;
         }
 
         html, body {
@@ -51,8 +51,8 @@
         .ambient {
             position: fixed; border-radius: 50%; pointer-events: none; filter: blur(120px); z-index: 0;
         }
-        .ambient-1 { width: 500px; height: 500px; top: -150px; left: -100px; background: radial-gradient(circle, rgba(61,230,245,0.08), transparent 70%); }
-        .ambient-2 { width: 400px; height: 400px; bottom: 0; right: -80px; background: radial-gradient(circle, rgba(155,114,255,0.07), transparent 70%); }
+        .ambient-1 { width: 500px; height: 500px; top: -150px; left: -100px; background: radial-gradient(circle, rgba(88,209,255,0.1), transparent 70%); }
+        .ambient-2 { width: 400px; height: 400px; bottom: 0; right: -80px; background: radial-gradient(circle, rgba(127,140,255,0.1), transparent 70%); }
 
         /* ── LAYOUT ── */
         #loginSection {
@@ -207,10 +207,11 @@
         /* ══ STATS GRID ═════════════════════════════════════════════════ */
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(4, 1fr);
+            grid-template-columns: repeat(5, 1fr);
             gap: 16px; margin-bottom: 28px;
         }
 
+        @media (max-width: 1100px) { .stats-grid { grid-template-columns: repeat(3, 1fr); } }
         @media (max-width: 900px) { .stats-grid { grid-template-columns: repeat(2, 1fr); } }
         @media (max-width: 480px) { .stats-grid { grid-template-columns: 1fr; } }
 
@@ -234,6 +235,7 @@
         .sc-value.teal { color: var(--teal); }
         .sc-value.amber { color: var(--amber); }
         .sc-value.violet { color: var(--violet); }
+        .sc-value.rose { color: var(--rose); }
 
         .track { height: 3px; background: rgba(255,255,255,0.06); border-radius: 2px; overflow: hidden; }
         .fill { height: 100%; border-radius: 2px; transition: width .6s cubic-bezier(.4,0,.2,1); }
@@ -241,6 +243,7 @@
         .fill.teal { background: var(--teal); box-shadow: 0 0 8px var(--teal); }
         .fill.amber { background: var(--amber); box-shadow: 0 0 8px var(--amber); }
         .fill.violet { background: var(--violet); box-shadow: 0 0 8px var(--violet); }
+        .fill.rose { background: var(--rose); box-shadow: 0 0 8px var(--rose); }
 
         .sc-sub { font-size: 11px; color: var(--text-dim); margin-top: 6px; font-family: 'Space Mono', monospace; }
 
@@ -565,6 +568,12 @@
                 <div class="track"><div class="fill violet" id="totalBar" style="width:0%"></div></div>
                 <div class="sc-sub">Session count</div>
             </div>
+            <div class="stat-card">
+                <div class="sc-label">PENDING BLOCKED</div>
+                <div class="sc-value rose" id="pendingValue">0</div>
+                <div class="track"><div class="fill rose" id="pendingBar" style="width:0%"></div></div>
+                <div class="sc-sub" id="pendingInfo">queued for replay</div>
+            </div>
         </div>
 
         <!-- Gauge -->
@@ -608,6 +617,7 @@
             <button class="btn-action primary" id="sendBtn" onclick="sendRequest()">
                 <span id="sendBtnContent">↑ Send Request</span>
             </button>
+            <button class="btn-action outline" onclick="serveBlockedRequests()">Serve Blocked</button>
             <button class="btn-action outline" onclick="clearLog()">Clear Log</button>
             <button class="btn-action outline" onclick="toggleAnalyticsPanel()">Analytics ↓</button>
         </div>
@@ -669,7 +679,8 @@
 
 <script>
 // ─── STATE ───────────────────────────────────────────────
-const API_URL = "http://localhost:8080";
+const API_PORT_CANDIDATES = [8080,8081,8082,8083,8084,8085,8086,8087,8088,8089,8090];
+let API_URL = resolveInitialApiBase();
 let authToken = null, currentClientID = null;
 let requestCount=0, successCount=0, blockedCount=0, warningCount=0;
 let sessionStart=null;
@@ -680,6 +691,60 @@ let isDark=true;
 let charts={};
 let currentFilter='all';
 let analyticsOpen=false;
+let pendingBlocked=0;
+let blockedRefreshInFlight=false;
+let lastBlockedRefresh=0;
+let queuedIdToSessionId = {};
+
+function normalizeBaseUrl(url) {
+    return String(url || '').trim().replace(/\/+$/, '');
+}
+
+function resolveInitialApiBase() {
+    const fromQuery = normalizeBaseUrl(new URLSearchParams(window.location.search).get('api'));
+    if (fromQuery) {
+        localStorage.setItem('apiBaseUrl', fromQuery);
+        return fromQuery;
+    }
+
+    const fromStorage = normalizeBaseUrl(localStorage.getItem('apiBaseUrl'));
+    if (fromStorage) return fromStorage;
+
+    if (window.location.protocol !== 'file:' && window.location.origin && window.location.origin !== 'null') {
+        return normalizeBaseUrl(window.location.origin);
+    }
+
+    return 'http://localhost:8080';
+}
+
+function getApiCandidates() {
+    const candidates = [];
+    const seen = new Set();
+
+    const add = (base) => {
+        const normalized = normalizeBaseUrl(base);
+        if (!normalized || seen.has(normalized)) return;
+        seen.add(normalized);
+        candidates.push(normalized);
+    };
+
+    add(API_URL);
+
+    const fromStorage = normalizeBaseUrl(localStorage.getItem('apiBaseUrl'));
+    add(fromStorage);
+
+    if (window.location.protocol !== 'file:' && window.location.origin && window.location.origin !== 'null') {
+        add(window.location.origin);
+    }
+
+    API_PORT_CANDIDATES.forEach(port => add(`http://localhost:${port}`));
+    return candidates;
+}
+
+function rememberApiBase(apiBase) {
+    API_URL = normalizeBaseUrl(apiBase);
+    localStorage.setItem('apiBaseUrl', API_URL);
+}
 
 // ─── INIT ─────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
@@ -748,30 +813,75 @@ function playNote(type) {
 }
 
 // ─── AUTH ─────────────────────────────────────────────────
-function login() {
+async function login() {
     const cid=document.getElementById('clientID').value.trim();
     const pwd=document.getElementById('password').value.trim();
-    const alert=document.getElementById('loginAlert');
     if(!cid||!pwd){ showLoginAlert('Both fields are required.','error'); playNote('error'); return; }
 
-    fetch(`${API_URL}/auth/login`, {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({clientID:cid,password:pwd})
-    })
-    .then(r=>r.json())
-    .then(d=>{
-        if(d.error){ showLoginAlert(d.error,'error'); playNote('error'); document.getElementById('password').value=''; return; }
-        authToken=d.token; currentClientID=cid; sessionStart=Date.now();
+    try {
+        const { data, apiBase } = await tryLoginAcrossApiBases(cid, pwd);
+        if (!data.token) throw new Error('Login response missing token');
+
+        rememberApiBase(apiBase);
+        authToken=data.token; currentClientID=cid; sessionStart=Date.now();
         localStorage.setItem('authToken',authToken); localStorage.setItem('currentClientID',currentClientID);
         showLoginAlert('Authenticated.','success'); playNote('success');
         setTimeout(()=>{ showApp(); },700);
-    })
-    .catch(()=>{ showLoginAlert('Cannot connect to server.','error'); playNote('error'); });
+    } catch (err) {
+        showLoginAlert(err.message || 'Cannot connect to server.','error');
+        document.getElementById('password').value='';
+        playNote('error');
+    }
+}
+
+async function tryLoginAcrossApiBases(clientID, password) {
+    const apiBases = getApiCandidates();
+    let lastNetworkError = null;
+
+    for (const apiBase of apiBases) {
+        try {
+            const r = await fetch(`${apiBase}/auth/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ clientID, password })
+            });
+
+            let data = {};
+            try {
+                data = await r.json();
+            } catch (_) {
+                data = {};
+            }
+
+            if (r.ok) return { data, apiBase };
+
+            // Stop searching if we reached auth endpoint and credentials are invalid.
+            if (r.status === 400 || r.status === 401) {
+                const msg = data.error || `Login failed (${r.status})`;
+                throw new Error(msg);
+            }
+        } catch (err) {
+            // If backend is reachable and returned explicit auth error, bubble up immediately.
+            if (err instanceof Error && /Invalid credentials|Login failed \(40[01]\)/i.test(err.message)) {
+                throw err;
+            }
+            lastNetworkError = err;
+        }
+    }
+
+    if (lastNetworkError instanceof Error) {
+        throw new Error('Cannot connect to backend. Start server and verify active port (8080-8090).');
+    }
+    throw new Error('Login failed. Verify credentials and backend availability.');
 }
 
 function logout() {
     authToken=null; currentClientID=null;
     requestCount=successCount=blockedCount=warningCount=0;
+    pendingBlocked=0;
+    queuedIdToSessionId = {};
+    blockedRefreshInFlight=false;
+    lastBlockedRefresh=0;
     requestTimestamps=[]; requestResponseTimes=[]; sessionStart=null;
     localStorage.removeItem('authToken'); localStorage.removeItem('currentClientID');
     document.getElementById('clientID').value=''; document.getElementById('password').value='';
@@ -792,27 +902,37 @@ function showApp() {
     document.getElementById('appSection').classList.add('visible');
     document.getElementById('authClientID').textContent = currentClientID;
     document.getElementById('ubClientID').textContent = currentClientID;
+    refreshBlockedPending(true);
     startSessionTimer(); initCharts(); updateStats();
 }
 
 // ─── REQUEST ──────────────────────────────────────────────
-function sendRequest() {
+async function sendRequest() {
     if(!authToken) { showToast('Not authenticated','error'); return; }
     const btn=document.getElementById('sendBtn');
     const orig=btn.innerHTML;
     btn.innerHTML='<span id="sendBtnContent"><span class="spin"></span></span>';
     btn.disabled=true;
-    const t0=performance.now(), ts=new Date();
 
-    fetch(API_URL, {
-        method:'GET', headers:{
-            'X-Client-ID':currentClientID,
-            'Authorization':`Bearer ${authToken}`,
-            'Content-Type':'application/json'
+    try {
+        const t0=performance.now(), ts=new Date();
+        const r = await fetch(API_URL, {
+            method:'GET', headers:{
+                'X-Client-ID':currentClientID,
+                'Authorization':`Bearer ${authToken}`,
+                'Content-Type':'application/json'
+            }
+        });
+
+        let data = {};
+        try {
+            data = await r.json();
+        } catch (_) {
+            data = {};
         }
-    })
-    .then(r=>r.json().then(d=>({ok:r.ok,status:r.status,data:d,rt:performance.now()-t0})))
-    .then(res=>{
+
+        const res = { ok: r.ok, status: r.status, data, rt: performance.now()-t0 };
+
         requestCount++;
         requestTimestamps.push(ts);
         requestResponseTimes.push(res.rt);
@@ -823,15 +943,32 @@ function sendRequest() {
 
         let type;
         if(res.ok){ successCount++; type='success'; playNote('success'); }
-        else if(res.status===429){ blockedCount++; type='blocked'; playNote('error'); }
+        else if(res.status===429){
+            blockedCount++;
+            pendingBlocked = Number(res.data.pending ?? (pendingBlocked + 1));
+            const queuedID = Number(res.data.queued_request_id || 0);
+            if (queuedID > 0) {
+                queuedIdToSessionId[queuedID] = requestCount;
+            }
+            type='blocked';
+            playNote('error');
+        }
         else{ warningCount++; type='warning'; playNote('warning'); }
 
         const entry={id:requestCount,ts,endpoint:'/',type,rt:res.rt,msg:res.data.message||'OK'};
         addLogEntry(entry); updateStats(); updateHealth();
         showToast(`${type==='success'?'✓':type==='blocked'?'✗':'⚠'} #${requestCount} — ${entry.msg}`, type);
-    })
-    .catch(()=>{ showToast('Server unreachable','error'); playNote('error'); })
-    .finally(()=>{ btn.innerHTML=orig; btn.disabled=false; });
+
+        if(res.status!==429) {
+            refreshBlockedPending();
+        }
+    } catch (_) {
+        showToast('Server unreachable','error');
+        playNote('error');
+    } finally {
+        btn.innerHTML=orig;
+        btn.disabled=false;
+    }
 }
 
 function testEndpoint() {
@@ -843,6 +980,94 @@ function testEndpoint() {
     fetch(`${API_URL}${ep}`,{headers:{'X-Client-ID':currentClientID,'Authorization':`Bearer ${authToken}`}})
         .then(r=>r.json()).then(d=>{ out.textContent=JSON.stringify(d,null,2); playNote('success'); })
         .catch(e=>{ out.textContent=`Error: ${e.message}`; playNote('error'); });
+}
+
+function serveBlockedRequests(options = {}) {
+    if(!authToken) { showToast('Not authenticated','error'); return; }
+
+    const { count, silent = false } = options;
+    const replayStart = performance.now();
+    const desiredServeCount = count ?? pendingBlocked ?? 0;
+    const serveCount = Math.max(1, Number(desiredServeCount));
+
+    return fetch(`${API_URL}/api/blocked/serve?count=${serveCount}`, {
+        method:'POST',
+        headers:{
+            'Authorization':`Bearer ${authToken}`,
+            'Content-Type':'application/json'
+        }
+    })
+    .then(r=>r.json().then(d=>({ok:r.ok,data:d})))
+    .then(res=>{
+        if(!res.ok){
+            const pendingFromServer = Number(res.data?.pending);
+            if (!Number.isNaN(pendingFromServer) && pendingFromServer >= 0) {
+                pendingBlocked = pendingFromServer;
+                updateStats();
+            }
+
+            if (!silent) {
+                const retryAfter = Number(res.data?.retry_after_seconds || 0);
+                const suffix = retryAfter > 0 ? ` Retry in ${retryAfter}s.` : '';
+                showToast((res.data.error || 'Failed to serve blocked requests') + suffix,'error');
+                playNote('error');
+            }
+            return { servedCount: 0, pending: pendingBlocked, servedIDs: [] };
+        }
+
+        const servedCount = (res.data.served || []).length;
+        const pending = Number(res.data.pending || 0);
+        pendingBlocked = pending;
+        blockedCount = Math.max(0, blockedCount - servedCount);
+        if (!silent) {
+            showToast(`Served ${servedCount} blocked request(s), pending ${pending}`,'info');
+        }
+
+        const servedIDs = [];
+
+        if (servedCount > 0) {
+            const now = new Date();
+            const avgRT = Math.max(1, Math.round((performance.now() - replayStart) / servedCount));
+
+            res.data.served.forEach(item => {
+                successCount++;
+                requestTimestamps.push(new Date(now));
+                requestResponseTimes.push(avgRT);
+
+                const queueID = Number(item.queued_request_id || 0);
+                const originalID = queueID > 0 ? queuedIdToSessionId[queueID] : undefined;
+                const displayID = originalID ?? queueID;
+                servedIDs.push(displayID);
+                if (queueID > 0) {
+                    delete queuedIdToSessionId[queueID];
+                }
+
+                addLogEntry({
+                    id: displayID,
+                    ts: new Date(now),
+                    endpoint: item.path || '/',
+                    type: 'success',
+                    rt: avgRT,
+                    msg: `Served queued request #${displayID}`
+                });
+            });
+
+            updateStats();
+            updateHealth();
+        }
+        refreshBlockedPending(true);
+        if (!silent) {
+            playNote('success');
+        }
+        return { servedCount, pending, servedIDs };
+    })
+    .catch(()=>{
+        if (!silent) {
+            showToast('Cannot reach blocked request service','error');
+            playNote('error');
+        }
+        return { servedCount: 0, pending: pendingBlocked, servedIDs: [] };
+    });
 }
 
 // ─── LOG ──────────────────────────────────────────────────
@@ -902,7 +1127,9 @@ function filterLog(filter, el) {
 function clearLog() {
     document.getElementById('logContainer').innerHTML='<div class="log-empty" id="logEmpty">Log cleared.</div>';
     requestCount=successCount=blockedCount=warningCount=0;
+    queuedIdToSessionId = {};
     requestTimestamps=[]; requestResponseTimes=[];
+    refreshBlockedPending(true);
     updateStats(); showToast('Log cleared','info'); playNote('click');
 }
 
@@ -939,7 +1166,10 @@ function updateStats() {
     }
 
     setVal('totalValue',requestCount); setBar('totalBar',Math.min(100,(requestCount/20)*100));
-    setVal('lgSuccess',successCount); setVal('lgBlocked',blockedCount);
+    setVal('pendingValue',pendingBlocked);
+    setBar('pendingBar',Math.min(100,(pendingBlocked/Math.max(1,rateLimitMax))*100));
+    setVal('pendingInfo', pendingBlocked===1 ? '1 request queued' : `${pendingBlocked} requests queued`);
+    setVal('lgSuccess',successCount); setVal('lgBlocked',pendingBlocked);
     setVal('lgWarn',warningCount); setVal('lgTotal',requestCount);
 
     // gauge
@@ -976,8 +1206,37 @@ function startSessionTimer() {
         const e=Math.floor((Date.now()-sessionStart)/1000);
         const h=Math.floor(e/3600), m=Math.floor((e%3600)/60), s=e%60;
         setVal('sessionTime',[h,m,s].map(x=>String(x).padStart(2,'0')).join(':'));
+        refreshBlockedPending();
         updateStats();
     },1000);
+}
+
+function refreshBlockedPending(force=false) {
+    if(!authToken) return;
+
+    const now = Date.now();
+    if(!force && (blockedRefreshInFlight || (now-lastBlockedRefresh)<2500)) return;
+
+    blockedRefreshInFlight=true;
+    fetch(`${API_URL}/api/blocked`, {
+        headers:{
+            'Authorization':`Bearer ${authToken}`,
+            'Content-Type':'application/json'
+        }
+    })
+    .then(r=>r.json().then(d=>({ok:r.ok,data:d})))
+    .then(res=>{
+        const pendingFromServer = Number(res.data?.pending);
+        if (!Number.isNaN(pendingFromServer) && pendingFromServer >= 0) {
+            pendingBlocked = pendingFromServer;
+            updateStats();
+        }
+        if(res.ok) {
+            lastBlockedRefresh = Date.now();
+        }
+    })
+    .catch(()=>{})
+    .finally(()=>{ blockedRefreshInFlight=false; });
 }
 
 // ─── ANALYTICS ────────────────────────────────────────────

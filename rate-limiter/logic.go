@@ -148,6 +148,66 @@ func (rl *RateLimiter) Allow(clientID string, maxRequests int, window time.Durat
 	return true, nil
 }
 
+func (rl *RateLimiter) ReserveServeSlots(clientID string, maxRequests int, window time.Duration, desired int) (int, int, error) {
+	if clientID == "" {
+		return 0, 0, errors.New("client ID cannot be empty")
+	}
+	if maxRequests <= 0 {
+		return 0, 0, errors.New("max requests must be greater than zero")
+	}
+	if desired <= 0 {
+		return 0, 0, nil
+	}
+
+	rl.Mutex.Lock()
+	defer rl.Mutex.Unlock()
+
+	now := time.Now()
+	client, exists := rl.Clients[clientID]
+	if !exists {
+		client = &Client{
+			Metadata:     Metadata{ClientID: clientID},
+			RequestCount: 0,
+			WindowStart:  now,
+			LastSeen:     now,
+			RequestLog:   make([]time.Time, 0),
+		}
+		rl.Clients[clientID] = client
+	}
+
+	if now.Sub(client.WindowStart) > window {
+		resetClient(client)
+	}
+
+	remaining := maxRequests - client.RequestCount
+	if remaining <= 0 {
+		retryAfter := window - now.Sub(client.WindowStart)
+		if retryAfter < 0 {
+			retryAfter = 0
+		}
+
+		retryAfterSeconds := int(retryAfter / time.Second)
+		if retryAfter%time.Second != 0 {
+			retryAfterSeconds++
+		}
+		return 0, retryAfterSeconds, nil
+	}
+
+	granted := desired
+	if granted > remaining {
+		granted = remaining
+	}
+
+	for i := 0; i < granted; i++ {
+		client.RequestLog = append(client.RequestLog, now)
+	}
+	client.RequestCount += granted
+	client.LastSeen = now
+	rl.allowedCount.Add(uint64(granted))
+
+	return granted, 0, nil
+}
+
 // Helper function
 func resetClient(client *Client) {
 	client.RequestCount = 0

@@ -10,29 +10,26 @@ import (
 	ratelimiter "api-rate-limiter/rate-limiter"
 )
 
-func RateLimitMiddleware(rl *ratelimiter.RateLimiter, next http.Handler) http.Handler {
+type TokenValidator func(token string) (string, error)
+
+func RateLimitMiddleware(rl *ratelimiter.RateLimiter, validateToken TokenValidator, blockedStore *ratelimiter.BlockedRequestStore, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 
-		clientID := r.Header.Get("X-Client-ID")
-
-		// Check if client is authenticated
-		if clientID == "" {
-			clientID = r.RemoteAddr
-		}
-
-		// Verify authentication token (Bearer token)
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
-			fmt.Println("Unauthorized: Missing authentication token for:", clientID)
 			respondWithError(w, "Authentication required. Please provide valid Bearer token.", http.StatusUnauthorized)
 			return
 		}
 
-		// Token format validation (basic check)
 		token := strings.TrimPrefix(authHeader, "Bearer ")
 		if token == "" {
-			fmt.Println("Unauthorized: Invalid token format for:", clientID)
 			respondWithError(w, "Invalid authentication token.", http.StatusUnauthorized)
+			return
+		}
+
+		clientID, err := validateToken(strings.TrimSpace(token))
+		if err != nil {
+			respondWithError(w, "Invalid or expired token.", http.StatusUnauthorized)
 			return
 		}
 
@@ -52,16 +49,27 @@ func RateLimitMiddleware(rl *ratelimiter.RateLimiter, next http.Handler) http.Ha
 		}{}
 
 		if !allowed {
-			fmt.Println("Rate limit exceeded for:", clientID)
+			queued := blockedStore.EnqueueFromHTTP(clientID, r)
+			pending := blockedStore.PendingCount(clientID)
+
 			response.ClientID = clientID
 			response.Allowed = false
-			response.Message = "Rate limit exceeded"
+			response.Message = "Rate limit exceeded. Request queued for replay."
+
+			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusTooManyRequests)
-			json.NewEncoder(w).Encode(response)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"client_id":           response.ClientID,
+				"allowed":             response.Allowed,
+				"message":             response.Message,
+				"queued_request_id":   queued.ID,
+				"queued_request_path": queued.Path,
+				"pending":             pending,
+			})
 			return
 		}
 
-		fmt.Println("Request allowed for:", clientID)
+		r.Header.Set("X-Authenticated-Client-ID", clientID)
 		next.ServeHTTP(w, r)
 	})
 }
