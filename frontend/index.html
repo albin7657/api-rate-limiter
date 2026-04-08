@@ -915,28 +915,6 @@ async function sendRequest() {
     btn.disabled=true;
 
     try {
-        const serverPending = await fetchBlockedPendingCount();
-        if (serverPending > 0) {
-            const replay = await serveBlockedRequests({ count: 1, silent: true });
-
-            if (replay.servedCount > 0) {
-                const servedID = replay.servedIDs?.[0];
-                showToast(
-                    servedID !== undefined
-                        ? `Served queued request #${servedID}`
-                        : 'Served queued blocked request',
-                    'info'
-                );
-                playNote('success');
-                return;
-            }
-
-            if ((replay.pending ?? 0) > 0) {
-                showToast('Queued requests are waiting for reset. Sending new request and queueing if needed.','warning');
-                playNote('warning');
-            }
-        }
-
         const t0=performance.now(), ts=new Date();
         const r = await fetch(API_URL, {
             method:'GET', headers:{
@@ -990,30 +968,6 @@ async function sendRequest() {
     } finally {
         btn.innerHTML=orig;
         btn.disabled=false;
-    }
-}
-
-async function fetchBlockedPendingCount() {
-    if (!authToken) return pendingBlocked;
-
-    try {
-        const r = await fetch(`${API_URL}/api/blocked`, {
-            headers: {
-                'Authorization': `Bearer ${authToken}`,
-                'Content-Type': 'application/json'
-            }
-        });
-
-        const data = await r.json().catch(() => ({}));
-        const serverPending = Number(data?.pending);
-        if (!Number.isNaN(serverPending) && serverPending >= 0) {
-            pendingBlocked = serverPending;
-            updateStats();
-        }
-
-        return pendingBlocked;
-    } catch (_) {
-        return pendingBlocked;
     }
 }
 
